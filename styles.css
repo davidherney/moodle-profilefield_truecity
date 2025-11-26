@@ -1,0 +1,5 @@
+.truecity-selector-modal .modal-body > div {
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--secondary, #ddd);
+}
