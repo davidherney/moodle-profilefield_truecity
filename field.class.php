@@ -22,7 +22,9 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-use core\plugininfo\format;
+defined('MOODLE_INTERNAL') || die();
+
+require_once($CFG->libdir . '/form/autocomplete.php');
 
 /**
  * Class profile_field_truecity
@@ -32,9 +34,21 @@ use core\plugininfo\format;
  */
 class profile_field_truecity extends profile_field_base {
     /**
+     * Indicates if we are in editing mode
+     *
+     * @var bool
+     */
+    public $editingmode = false;
+
+    /**
      * Overwrite the base class to display the data for this field
      */
     public function display_data() {
+
+        if (!$this->editingmode) {
+            return '';
+        }
+
         global $USER;
         $value = '';
         $a = new stdClass();
@@ -57,6 +71,20 @@ class profile_field_truecity extends profile_field_base {
     }
 
     /**
+     * Display the name of the profile field.
+     *
+     * @param bool $escape
+     * @return string
+     */
+    public function display_name(bool $escape = true): string {
+        if (!$this->editingmode) {
+            return '';
+        }
+
+        return parent::display_name($escape);
+    }
+
+    /**
      * Add fields for editing a text profile field.
      *
      * @param moodleform $mform
@@ -64,8 +92,13 @@ class profile_field_truecity extends profile_field_base {
     public function edit_field_add($mform) {
         global $USER, $OUTPUT, $PAGE;
 
-        $baseurl = $this->field->param1;
+        $this->editingmode = true;
+        $baseurl = rtrim($this->field->param1, '/');
         $uniqid = uniqid();
+
+        if (empty($baseurl)) {
+            return;
+        }
 
         $defaultcountry = $USER->country;
         if (empty($defaultcountry)) {
@@ -89,9 +122,9 @@ class profile_field_truecity extends profile_field_base {
         $citieslist = new \MoodleQuickForm_autocomplete('profilefield_truecity_city', '', [], $attributes);
         $citieslist->setMultiple(false);
 
-        // Se debe cambiar a un campo hidden para almacenar el JSON.
+        // Store the field data in a hidden field as JSON.
         $mform->addElement(
-            'text',
+            'hidden',
             $this->inputname,
             format_string($this->field->name),
             ['data-targetvalue' => $uniqid]
@@ -112,20 +145,66 @@ class profile_field_truecity extends profile_field_base {
         ]);
 
         $mform->addElement('static', $this->inputname . '_static', format_string($this->field->name), $selectorhtml);
+
+        // Remove the original fields if exists, i.e. we are not on the signup page.
+        if ($mform->elementExists('city')) {
+            $mform->removeElement('city');
+        }
+        if ($mform->elementExists('country')) {
+            $mform->removeElement('country');
+        }
     }
 
     /**
-     * Process the data before it gets saved in database
-     *
-     * @param string|null $data
-     * @param stdClass $datarecord
-     * @return string|null
+     * Tweaks the edit form
+     * @param MoodleQuickForm $mform instance of the moodleform class
+     * @return bool
      */
-    public function edit_save_data_preprocess($data, $datarecord) {
-        if ($data === null) {
-            return null;
+    public function edit_after_data($mform) {
+        if ($this->field->visible == PROFILE_VISIBLE_NONE && !has_capability('moodle/user:update', context_system::instance())) {
+
+            if ($mform->elementExists('city')) {
+                $mform->removeElement('city');
+            }
+            if ($mform->elementExists('country')) {
+                $mform->removeElement('country');
+            }
         }
-        return core_text::substr($data, 0, $this->field->param2);
+        return parent::edit_after_data($mform);
+    }
+
+    /**
+     * Saves the data coming from form
+     *
+     * @param stdClass $usernew data coming from the form
+     */
+    public function edit_save_data($usernew) {
+        global $DB;
+
+        if (!isset($usernew->{$this->inputname})) {
+            // Field not present in form, probably locked and invisible - skip it.
+            return;
+        }
+
+        parent::edit_save_data($usernew);
+
+        $fielddata = json_decode($usernew->{$this->inputname}, true);
+        if (empty($fielddata) || !is_array($fielddata)) {
+            return;
+        }
+
+        $data = new stdClass();
+        $data->id = $usernew->id;
+
+        if (isset($fielddata['country'])) {
+            $data->country = $fielddata['country']['value'];
+        }
+
+        if (isset($fielddata['city'])) {
+            $data->city = $fielddata['city']['name'];
+        }
+
+        $DB->update_record('user', $data);
     }
 
     /**

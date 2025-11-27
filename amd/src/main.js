@@ -53,6 +53,11 @@ var $citylist;
 var $modalbody;
 
 /**
+ * @type {any} Currently selected location data
+ */
+var currentSelected = null;
+
+/**
  * @type {string} Base URL for AJAX requests in order to fetch location data: countries, regions, and cities.
  */
 var baseurl;
@@ -63,14 +68,15 @@ var baseurl;
  * @type {Array}
  */
 var strings = [
-    {key: 'invalidregionsdataformat', component: 'profilefield_truecity'},
-    {key: 'notset', component: 'profilefield_truecity'},
-    {key: 'selectacity', component: 'profilefield_truecity', },
-    {key: 'selectaregion', component: 'profilefield_truecity'},
-    {key: 'selectlocationtitle', component: 'profilefield_truecity'},
-    {key: 'locationtext', component: 'profilefield_truecity', param: {city: '[CITY]', country: '[COUNTRY]'}},
     {key: 'failedtoloadcountrydata', component: 'profilefield_truecity'},
     {key: 'failedtoloadregiondata', component: 'profilefield_truecity'},
+    {key: 'invalidregionsdataformat', component: 'profilefield_truecity'},
+    {key: 'locationtext', component: 'profilefield_truecity', param: {city: '[CITY]', country: '[COUNTRY]'}},
+    {key: 'notset', component: 'profilefield_truecity'},
+    {key: 'selectacity', component: 'profilefield_truecity'},
+    {key: 'selectaregion', component: 'profilefield_truecity'},
+    {key: 'selectlocationtitle', component: 'profilefield_truecity'},
+    {key: 'unknownregion', component: 'profilefield_truecity'},
 ];
 
 /**
@@ -88,9 +94,10 @@ async function loadStrings() {
         s[one.key] = one.key;
     });
 
-    getStrings(strings).then(function(results) {
+    await getStrings(strings).then(function(results) {
         var pos = 0;
         strings.forEach(one => {
+            console.log('Loaded string: ' + one.key + ' = ' + results[pos]);
             s[one.key] = results[pos];
             pos++;
         });
@@ -108,7 +115,7 @@ async function loadStrings() {
  * @param {string} uniqid Unique identifier for the field instance.
  * @param {string} url Base URL for AJAX requests in order to fetch location data: countries, regions, and cities.
  */
-export const init = async (uniqid, url) => {
+export const init = async(uniqid, url) => {
     baseurl = url;
 
     await loadStrings();
@@ -119,10 +126,22 @@ export const init = async (uniqid, url) => {
     $regionlist = $(`${selectorid} select[name="profilefield_truecity_region"]`);
     $citylist = $(`${selectorid} select[name="profilefield_truecity_city"]`);
 
+    // Load current selected value from hidden input.
+    const $hiddenInput = $('input[data-targetvalue="' + uniqid + '"]');
+    const currentValue = $hiddenInput.val();
+    if (currentValue) {
+        try {
+            currentSelected = JSON.parse(currentValue);
+        } catch (e) {
+            Log.debug('profilefield_truecity', 'Error parsing current location JSON: ' + e);
+        }
+    }
+
     $modalbody = $cotainerbase.find('.modal-body');
 
     var selectorModal;
 
+    console.log('Creating modal for truecity selector');
     // Create and show modal with the selector content
     Modal.create({
         title: s.selectlocationtitle,
@@ -173,7 +192,6 @@ export const init = async (uniqid, url) => {
             $cotainerbase.find('.truecity-information [data-locationtext]').text(locationText);
 
             // Store JSON string in hidden input
-            const $hiddenInput = $('input[data-targetvalue="' + uniqid + '"]');
             $hiddenInput.val(JSON.stringify(locationData));
 
             // Close modal after save
@@ -208,6 +226,11 @@ export const init = async (uniqid, url) => {
 
     // If a country is selected, fetch its JSON data.
     if (selectedCountry) {
+        // Clear currentSelected if country not matches.
+        if (currentSelected && currentSelected.country && currentSelected.country.value !== selectedCountry) {
+            currentSelected = null;
+        }
+
         loadCountryRegions(selectedCountry);
     }
 };
@@ -247,31 +270,39 @@ function loadCountryRegions(countryCode) {
  * @param {Array} regions Array of region objects.
  */
 function populateRegions(regions) {
-    const $regionSelect = $regionlist;
-
     // Deselect all options first
-    $regionSelect.find('option').prop('selected', false);
+    $regionlist.find('option').prop('selected', false);
 
     // Clear and repopulate the select
-    $regionSelect.empty();
-    $regionSelect.append('<option value=""></option>');
+    $regionlist.empty();
+    $regionlist.append('<option value=""></option>');
 
     regions = regions.sort((a, b) => a.n.localeCompare(b.n));
     regions.forEach(region => {
-        $regionSelect.append(`<option value="${region.c}">${region.n}</option>`);
+        let name = region.n;
+        if (!name || name.trim() === '' || name == 'UNKNOWN') {
+            name = s.unknownregion;
+        }
+        $regionlist.append(`<option value="${region.i}">${name}</option>`);
     });
 
-    // Set to empty value explicitly.
-    $regionSelect.val('');
+    if (currentSelected && currentSelected.region) {
+        // Preselect the region if available.
+        $regionlist.val(currentSelected.region.value);
+        currentSelected.region = null;
+    } else {
+        // Set to empty value explicitly.
+        $regionlist.val('');
+    }
 
     // Trigger change event to update autocomplete UI.
-    $regionSelect.trigger('change');
+    $regionlist.trigger('change');
 
     // Get the currently selected region.
-    const selectedRegion = $regionSelect.val();
+    const selectedRegion = $regionlist.val();
 
     // Add event listener for region change (only once).
-    $regionSelect.off('change.truecity').on('change.truecity', function() {
+    $regionlist.off('change.truecity').on('change.truecity', function() {
         const regionCode = $(this).val();
         const countryCode = $countrylist.val();
         $modalbody.find('.alert').remove();
@@ -338,8 +369,14 @@ function populateCities(cities) {
         $citylist.append(`<option value="${city.i}">${city.n}</option>`);
     });
 
-    // Set to empty value explicitly
-    $citylist.val('');
+    if (currentSelected && currentSelected.city) {
+        // Preselect the city if available.
+        $citylist.val(currentSelected.city.value);
+        currentSelected.city = null;
+    } else {
+        // Set to empty value explicitly.
+        $citylist.val('');
+    }
 
     // Add event listener for city change (only once).
     $citylist.off('change.truecity').on('change.truecity', function() {

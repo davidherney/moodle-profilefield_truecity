@@ -26,7 +26,7 @@ defined('MOODLE_INTERNAL') || die();
 
 $plugin->component    = 'profilefield_truecity';
 $plugin->release      = '1.0';
-$plugin->version      = 2025112400.01;
+$plugin->version      = 2025112400.02;
 $plugin->requires     = 2024100700;
 $plugin->supported    = [405, 501];
 $plugin->maturity     = MATURITY_STABLE;
