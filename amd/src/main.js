@@ -26,31 +26,32 @@ import ModalEvents from 'core/modal_events';
 import Notification from 'core/notification';
 import Log from 'core/log';
 import {get_strings as getStrings} from 'core/str';
+import TruecityAutocomplete from './autocomplete';
 
 /**
- * @type {jQuery|HTMLElement} Base container for the true city selector
+ * @type {HTMLElement} Base container for the true city selector
  */
-var $cotainerbase;
+var containerBase;
 
 /**
- * @type {jQuery|HTMLElement} Country select list element
+ * @type {TruecityAutocomplete} Country autocomplete instance
  */
-var $countrylist;
+var countryAC;
 
 /**
- * @type {jQuery|HTMLElement} Region select list element
+ * @type {TruecityAutocomplete} Region autocomplete instance
  */
-var $regionlist;
+var regionAC;
 
 /**
- * @type {jQuery|HTMLElement} City select list element
+ * @type {TruecityAutocomplete} City autocomplete instance
  */
-var $citylist;
+var cityAC;
 
 /**
- * @type {jQuery|HTMLElement} Modal body container
+ * @type {HTMLElement} Modal body container
  */
-var $modalbody;
+var modalbody;
 
 /**
  * @type {any} Currently selected location data
@@ -119,117 +120,150 @@ export const init = async(uniqid, url) => {
 
     await loadStrings();
 
-    const selectorid = `#truecity-selector-${uniqid}`;
-    $cotainerbase = $(`${selectorid}`);
-    $countrylist = $(`${selectorid} select[name="profilefield_truecity_country"]`);
-    $regionlist = $(`${selectorid} select[name="profilefield_truecity_region"]`);
-    $citylist = $(`${selectorid} select[name="profilefield_truecity_city"]`);
+    const selectorid = `truecity-selector-${uniqid}`;
+    containerBase = document.getElementById(selectorid);
+
+    if (!containerBase) {
+        Log.debug('profilefield_truecity: container not found: ' + selectorid);
+        return;
+    }
+
+    // Initialize autocomplete controls. Countries are pre-loaded as <option> elements in the template.
+    const countryContainer = containerBase.querySelector('[data-truecity-control="country"]');
+    const defaultCountry = countryContainer ? countryContainer.dataset.default || '' : '';
+    const regionContainer = containerBase.querySelector('[data-truecity-control="region"]');
+    const cityContainer = containerBase.querySelector('[data-truecity-control="city"]');
+
+    countryAC = new TruecityAutocomplete(countryContainer, {
+        placeholder: s.selectacity,
+        onChange: (value) => {
+            regionAC.clear();
+            cityAC.clear();
+            if (value) {
+                loadCountryRegions(value);
+            }
+        },
+    });
+
+    regionAC = new TruecityAutocomplete(regionContainer, {
+        placeholder: s.selectaregion,
+        onChange: (value) => {
+            cityAC.clear();
+            const countryCode = countryAC.getValue();
+            if (value && countryCode) {
+                loadRegionCities(countryCode, value);
+            }
+        },
+    });
+
+    cityAC = new TruecityAutocomplete(cityContainer, {
+        placeholder: s.selectacity,
+    });
 
     // Load current selected value from hidden input.
-    const $hiddenInput = $('input[data-targetvalue="' + uniqid + '"]');
-    const currentValue = $hiddenInput.val();
+    const hiddenInput = document.querySelector('input[data-targetvalue="' + uniqid + '"]');
+    const currentValue = hiddenInput ? hiddenInput.value : '';
     if (currentValue) {
         try {
             currentSelected = JSON.parse(currentValue);
         } catch (e) {
-            Log.debug('profilefield_truecity', 'Error parsing current location JSON: ' + e);
+            Log.debug('profilefield_truecity: Error parsing current location JSON: ' + e);
         }
     }
 
-    $modalbody = $cotainerbase.find('.modal-body');
+    modalbody = containerBase.querySelector('.modal-body');
 
     var selectorModal;
 
-    // Create and show modal with the selector content
+    // Create and show modal with the selector content.
     Modal.create({
         title: s.selectlocationtitle,
-        body: `<div id="${selectorid.substring(1)}-modal" class="truecity-selector-modal"></div>`,
+        body: `<div id="${selectorid}-modal" class="truecity-selector-modal"></div>`,
     }).then(function(modal) {
         selectorModal = modal;
 
-        // Add event listener for save button
+        // Add event listener for save button.
         modal.getRoot().on(ModalEvents.save, function() {
-            // Get selected values
-            const selectedCountry = $countrylist.val();
-            const selectedRegion = $regionlist.val();
-            const selectedCity = $citylist.val();
+            const selectedCountry = countryAC.getValue();
+            const selectedRegion = regionAC.getValue();
+            const selectedCity = cityAC.getValue();
 
             // Validate that all required values are selected.
             if (!selectedCountry || !selectedRegion || !selectedCity) {
                 arguments[0].preventDefault();
-                $modalbody.find('.alert').remove();
-                $modalbody.prepend('<div class="alert alert-danger" role="alert">' + s.selectacity + '</div>');
+                // Remove previous alerts.
+                const prevAlert = modalbody.querySelector('.alert');
+                if (prevAlert) {
+                    prevAlert.remove();
+                }
+                modalbody.insertAdjacentHTML('afterbegin',
+                    '<div class="alert alert-danger" role="alert">' + s.selectacity + '</div>');
                 return;
             }
 
-            const countryName = $countrylist.find('option:selected').text();
-            const regionName = $regionlist.find('option:selected').text();
-            const cityName = $citylist.find('option:selected').text();
+            const countryName = countryAC.getLabel();
+            const regionName = regionAC.getLabel();
+            const cityName = cityAC.getLabel();
 
-            // Create JSON object with values and names
+            // Create JSON object with values and names.
             const locationData = {
                 country: {
                     value: selectedCountry,
-                    name: countryName
+                    name: countryName,
                 },
                 region: {
                     value: selectedRegion,
-                    name: regionName
+                    name: regionName,
                 },
                 city: {
                     value: selectedCity,
-                    name: cityName
-                }
+                    name: cityName,
+                },
             };
 
-            // Update location text display
+            // Update location text display.
             const locationText = s.locationtext
                 .replace('[COUNTRY]', countryName)
                 .replace('[CITY]', cityName);
 
-            $cotainerbase.find('.truecity-information [data-locationtext]').text(locationText);
+            const locationEl = containerBase.querySelector('.truecity-information [data-locationtext]');
+            if (locationEl) {
+                locationEl.textContent = locationText;
+            }
 
-            // Store JSON string in hidden input
-            $hiddenInput.val(JSON.stringify(locationData));
+            // Store JSON string in hidden input.
+            if (hiddenInput) {
+                hiddenInput.value = JSON.stringify(locationData);
+            }
 
-            // Close modal after save
+            // Close modal after save.
             modal.hide();
         });
 
         return modal;
     }).catch(Notification.exception);
 
-    $cotainerbase.find('.truecity-information [data-act="openselector"]').on('click', function() {
-        selectorModal.show();
-        $(`${selectorid}-modal`).append($modalbody);
-        $modalbody.removeClass('hidden');
-    });
+    const openBtn = containerBase.querySelector('.truecity-information [data-act="openselector"]');
+    if (openBtn) {
+        openBtn.addEventListener('click', function() {
+            selectorModal.show();
+            const modalTarget = document.getElementById(`${selectorid}-modal`);
+            if (modalTarget && modalbody) {
+                modalTarget.appendChild(modalbody);
+                modalbody.classList.remove('hidden');
+            }
+        });
+    }
 
-    // Get the currently selected country.
-    const selectedCountry = $countrylist.val();
-    $countrylist.on('change', function() {
-        const countryCode = $(this).val();
-        $modalbody.find('.alert').remove();
-
-        // Deselect and clear region and city selects
-        deselectAutocompleteItems($regionlist);
-        deselectAutocompleteItems($citylist);
-        clearSelect($regionlist);
-        clearSelect($citylist);
-
-        if (countryCode && countryCode != '') {
-            loadCountryRegions(countryCode);
-        }
-    });
-
-    // If a country is selected, fetch its JSON data.
-    if (selectedCountry) {
-        // Clear currentSelected if country not matches.
-        if (currentSelected && currentSelected.country && currentSelected.country.value !== selectedCountry) {
+    // Preselect default country and load its regions.
+    if (defaultCountry) {
+        // Clear currentSelected if country does not match.
+        if (currentSelected && currentSelected.country && currentSelected.country.value !== defaultCountry) {
             currentSelected = null;
         }
 
-        loadCountryRegions(selectedCountry);
+        countryAC.setValue(defaultCountry);
+        loadCountryRegions(defaultCountry);
     }
 };
 
@@ -239,8 +273,7 @@ export const init = async(uniqid, url) => {
  * @param {string} countryCode The selected country code.
  */
 function loadCountryRegions(countryCode) {
-    const countryuri = `${baseurl}/countries`;
-    const countryJsonUrl = `${countryuri}/${countryCode}.json`;
+    const countryJsonUrl = `${baseurl}/countries/${countryCode}.json`;
     Log.debug('Loading regions from URL: ' + countryJsonUrl);
 
     $.ajax({
@@ -249,75 +282,45 @@ function loadCountryRegions(countryCode) {
         dataType: 'json',
         success: function(data) {
             if (Array.isArray(data)) {
-                // Handle the country data.
                 populateRegions(data);
             } else {
-                Log.debug('profilefield_truecity', 'Invalid regions data format');
+                Log.debug('profilefield_truecity: Invalid regions data format');
                 Notification.exception(new Error(s.invalidregionsdataformat));
             }
         },
         error: function(xhr, status, error) {
-            Log.debug('profilefield_truecity', 'Error fetching country data: ' + error);
+            Log.debug('profilefield_truecity: Error fetching country data: ' + error);
             Notification.exception(new Error(s.failedtoloadcountrydata));
-        }
+        },
     });
 }
 
 /**
- * Populate the regions dropdown based on the selected country.
+ * Populate the regions control based on the selected country.
  *
  * @param {Array} regions Array of region objects.
  */
 function populateRegions(regions) {
-    // Deselect all options first
-    $regionlist.find('option').prop('selected', false);
-
-    // Clear and repopulate the select
-    $regionlist.empty();
-    $regionlist.append('<option value=""></option>');
-
     regions = regions.sort((a, b) => a.n.localeCompare(b.n));
-    regions.forEach(region => {
+    const items = regions.map(region => {
         let name = region.n;
-        if (!name || name.trim() === '' || name == 'UNKNOWN') {
+        if (!name || name.trim() === '' || name === 'UNKNOWN') {
             name = s.unknownregion;
         }
-        $regionlist.append(`<option value="${region.i}">${name}</option>`);
+        return {value: String(region.i), label: name};
     });
+
+    regionAC.setItems(items);
 
     if (currentSelected && currentSelected.region) {
-        // Preselect the region if available.
-        $regionlist.val(currentSelected.region.value);
+        regionAC.setValue(currentSelected.region.value);
+        const selectedRegion = regionAC.getValue();
         currentSelected.region = null;
-    } else {
-        // Set to empty value explicitly.
-        $regionlist.val('');
-    }
 
-    // Trigger change event to update autocomplete UI.
-    $regionlist.trigger('change');
-
-    // Get the currently selected region.
-    const selectedRegion = $regionlist.val();
-
-    // Add event listener for region change (only once).
-    $regionlist.off('change.truecity').on('change.truecity', function() {
-        const regionCode = $(this).val();
-        const countryCode = $countrylist.val();
-        $modalbody.find('.alert').remove();
-
-        deselectAutocompleteItems($citylist);
-        clearSelect($citylist);
-
-        if (regionCode && regionCode != '' && countryCode) {
-            loadRegionCities(countryCode, regionCode);
+        if (selectedRegion) {
+            const countryCode = countryAC.getValue();
+            loadRegionCities(countryCode, selectedRegion);
         }
-    });
-
-    // If a region is already selected, load its cities.
-    if (selectedRegion && selectedRegion != '') {
-        const countryCode = $countrylist.val();
-        loadRegionCities(countryCode, selectedRegion);
     }
 }
 
@@ -328,8 +331,7 @@ function populateRegions(regions) {
  * @param {string} regionCode The selected region code.
  */
 function loadRegionCities(countryCode, regionCode) {
-    const regionuri = `${baseurl}/regions`;
-    const regionJsonUrl = `${regionuri}/${countryCode}_${regionCode}.json`;
+    const regionJsonUrl = `${baseurl}/regions/${countryCode}_${regionCode}.json`;
     Log.debug('Loading cities from URL: ' + regionJsonUrl);
 
     $.ajax({
@@ -338,101 +340,33 @@ function loadRegionCities(countryCode, regionCode) {
         dataType: 'json',
         success: function(data) {
             if (Array.isArray(data)) {
-                // Handle the country data.
                 populateCities(data);
             } else {
-                Log.debug('profilefield_truecity', 'Invalid cities data format');
+                Log.debug('profilefield_truecity: Invalid cities data format');
                 Notification.exception(new Error(s.invalidregionsdataformat));
             }
         },
         error: function(xhr, status, error) {
-            Log.debug('profilefield_truecity', 'Error fetching region data: ' + error);
+            Log.debug('profilefield_truecity: Error fetching region data: ' + error);
             Notification.exception(new Error(s.failedtoloadregiondata));
-        }
+        },
     });
 }
 
 /**
- * Populate the cities dropdown based on the selected region.
+ * Populate the cities control based on the selected region.
  *
  * @param {Array} cities Array of city objects.
  */
 function populateCities(cities) {
-    // Deselect all options first
-    $citylist.find('option').prop('selected', false);
-
-    $citylist.empty();
-    $citylist.append('<option value=""></option>');
-
     cities = cities.sort((a, b) => a.n.localeCompare(b.n));
-    cities.forEach(city => {
-        $citylist.append(`<option value="${city.i}">${city.n}</option>`);
-    });
+    const items = cities.map(city => ({value: String(city.i), label: city.n}));
+
+    cityAC.setItems(items);
 
     if (currentSelected && currentSelected.city) {
         Log.debug('Preselecting city: ' + currentSelected.city.value);
-        // Preselect the city if available.
-        $citylist.val(currentSelected.city.value);
+        cityAC.setValue(currentSelected.city.value);
         currentSelected.city = null;
-    } else {
-        // Set to empty value explicitly.
-        $citylist.val('');
     }
-
-    // Add event listener for city change (only once).
-    $citylist.off('change.truecity').on('change.truecity', function() {
-        $modalbody.find('.alert').remove();
-    });
-
-    // Trigger change event to update autocomplete UI
-    $citylist.trigger('change');
-}
-
-/**
- * Clear a select element and reset it to empty state.
- * Works with autocomplete-enhanced selects.
- *
- * @param {jQuery} $select The select element to clear.
- */
-function clearSelect($select) {
-    // First, deselect all options before removing them
-    $select.find('option').prop('selected', false);
-
-    // Now empty and add blank option
-    $select.empty();
-    $select.append('<option value=""></option>');
-    $select.val('');
-
-    // Trigger change to update autocomplete UI
-    $select.trigger('change');
-}
-
-/**
- * Deselect all items in an autocomplete-enhanced select by clicking on the badges.
- * This properly triggers the autocomplete's deselection logic.
- *
- * @param {jQuery} $select The select element to deselect items from.
- */
-function deselectAutocompleteItems($select) {
-    // The autocomplete elements are added to the same container as the original select.
-    const $parent = $select.parent();
-
-    // Find the selection container (where the badges are shown).
-    // Class .form-autocomplete-selection is standard for Moodle autocomplete.
-    const $selectionContainer = $parent.find('.form-autocomplete-selection');
-
-    if (!$selectionContainer.length) {
-        return;
-    }
-
-    // Find all selected items (badges).
-    const $selectionItems = $selectionContainer.find('[role="option"]');
-
-    // Click on each badge to trigger the deselection logic of the autocomplete component.
-    $selectionItems.each(function() {
-        $(this).trigger('click');
-    });
-
-    // Clear any remaining active value state on the container.
-    $selectionContainer.attr('data-active-value', '');
 }

@@ -33,15 +33,19 @@
     <div class="modal-body hidden">
         <div class="truecity-selector-list">
             <h5>{{#str}}country{{/str}}</h5>
-            {{{countrieslisthtml}}}
+            <div data-truecity-control="country" data-default="{{defaultcountry}}">
+                {{#countries}}
+                <option value="{{value}}">{{label}}</option>
+                {{/countries}}
+            </div>
         </div>
         <div class="truecity-selector-list">
             <h5>{{#str}}region, profilefield_truecity{{/str}}</h5>
-            {{{regionlisthtml}}}
+            <div data-truecity-control="region"></div>
         </div>
         <div class="truecity-selector-list">
             <h5>{{#str}}city{{/str}}</h5>
-            {{{citylisthtml}}}
+            <div data-truecity-control="city"></div>
         </div>
     </div>
 </div>

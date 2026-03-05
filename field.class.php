@@ -24,8 +24,6 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-require_once($CFG->libdir . '/form/autocomplete.php');
-
 /**
  * Class profile_field_truecity
  *
@@ -104,23 +102,13 @@ class profile_field_truecity extends profile_field_base {
         if (empty($defaultcountry)) {
             $defaultcountry = get_config('moodle', 'country');
         }
-        $attributes = ['multiple' => false, 'placeholder' => get_string('selectacountry')];
 
-        $formattedoptions = get_string_manager()->get_list_of_countries(true);
-
-        $countrieslist = new \MoodleQuickForm_autocomplete('profilefield_truecity_country', '', $formattedoptions, $attributes);
-        $countrieslist->setMultiple(false);
-        if (!empty($defaultcountry) && array_key_exists($defaultcountry, $formattedoptions)) {
-            $countrieslist->setValue($defaultcountry);
+        // Build countries list for the template.
+        $countries = get_string_manager()->get_list_of_countries(true);
+        $countriesoptions = [];
+        foreach ($countries as $code => $name) {
+            $countriesoptions[] = ['value' => $code, 'label' => $name];
         }
-
-        $attributes['placeholder'] = get_string('selectaregion', 'profilefield_truecity');
-        $regionslist = new \MoodleQuickForm_autocomplete('profilefield_truecity_region', '', [], $attributes);
-        $regionslist->setMultiple(false);
-
-        $attributes['placeholder'] = get_string('selectacity', 'profilefield_truecity');
-        $citieslist = new \MoodleQuickForm_autocomplete('profilefield_truecity_city', '', [], $attributes);
-        $citieslist->setMultiple(false);
 
         // Store the field data in a hidden field as JSON.
         $mform->addElement(
@@ -132,11 +120,10 @@ class profile_field_truecity extends profile_field_base {
         $mform->setType($this->inputname, PARAM_RAW);
 
         $selectorhtml = $OUTPUT->render_from_template('profilefield_truecity/selector', [
-            'countrieslisthtml' => $countrieslist->toHtml(),
-            'regionlisthtml' => $regionslist->toHtml(),
-            'citylisthtml' => $citieslist->toHtml(),
             'currentinfo' => $this->display_data(),
             'uniqid' => $uniqid,
+            'countries' => $countriesoptions,
+            'defaultcountry' => $defaultcountry ?: '',
         ]);
 
         $PAGE->requires->js_call_amd('profilefield_truecity/main', 'init', [
