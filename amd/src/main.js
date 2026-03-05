@@ -124,7 +124,8 @@ export const init = async(uniqid, url) => {
     containerBase = document.getElementById(selectorid);
 
     if (!containerBase) {
-        Log.debug('profilefield_truecity: container not found: ' + selectorid);
+        // This occurs when the control is loaded onto the form but the controls are not painted;
+        // it is only loaded to obtain the data.
         return;
     }
 
