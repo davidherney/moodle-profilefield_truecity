@@ -97,7 +97,6 @@ async function loadStrings() {
     await getStrings(strings).then(function(results) {
         var pos = 0;
         strings.forEach(one => {
-            console.log('Loaded string: ' + one.key + ' = ' + results[pos]);
             s[one.key] = results[pos];
             pos++;
         });
@@ -141,7 +140,6 @@ export const init = async(uniqid, url) => {
 
     var selectorModal;
 
-    console.log('Creating modal for truecity selector');
     // Create and show modal with the selector content
     Modal.create({
         title: s.selectlocationtitle,
@@ -243,6 +241,7 @@ export const init = async(uniqid, url) => {
 function loadCountryRegions(countryCode) {
     const countryuri = `${baseurl}/countries`;
     const countryJsonUrl = `${countryuri}/${countryCode}.json`;
+    Log.debug('Loading regions from URL: ' + countryJsonUrl);
 
     $.ajax({
         url: countryJsonUrl,
@@ -331,6 +330,7 @@ function populateRegions(regions) {
 function loadRegionCities(countryCode, regionCode) {
     const regionuri = `${baseurl}/regions`;
     const regionJsonUrl = `${regionuri}/${countryCode}_${regionCode}.json`;
+    Log.debug('Loading cities from URL: ' + regionJsonUrl);
 
     $.ajax({
         url: regionJsonUrl,
@@ -370,6 +370,7 @@ function populateCities(cities) {
     });
 
     if (currentSelected && currentSelected.city) {
+        Log.debug('Preselecting city: ' + currentSelected.city.value);
         // Preselect the city if available.
         $citylist.val(currentSelected.city.value);
         currentSelected.city = null;

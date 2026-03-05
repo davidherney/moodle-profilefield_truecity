@@ -162,7 +162,6 @@ class profile_field_truecity extends profile_field_base {
      */
     public function edit_after_data($mform) {
         if ($this->field->visible == PROFILE_VISIBLE_NONE && !has_capability('moodle/user:update', context_system::instance())) {
-
             if ($mform->elementExists('city')) {
                 $mform->removeElement('city');
             }
