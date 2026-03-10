@@ -40,16 +40,30 @@ class profile_field_truecity extends profile_field_base {
      * Overwrite the base class to display the data for this field
      */
     public function display_data() {
+        global $USER;
 
         if (!$this->editingmode) {
             return '';
         }
 
-        global $USER;
-        $value = '';
         $a = new stdClass();
-        $a->city = $USER->city;
-        $a->country = !empty($USER->country) ? get_string($USER->country, 'countries') : '';
+        $a->city = '';
+        $a->country = '';
+
+        if (!empty($this->field->param2)) {
+            $targetuser = empty($this->userid) || $this->userid == $USER->id ? $USER : core_user::get_user($this->userid);
+            $a->city = $targetuser->city;
+            $a->country = !empty($targetuser->country) ? get_string($targetuser->country, 'countries') : '';
+        }
+
+        if (!empty($this->data) && (empty($a->city) || empty($a->country))) {
+            $fielddata = json_decode($this->data, true);
+            if (empty($fielddata) || !is_array($fielddata)) {
+                return '';
+            }
+            $a->city = $fielddata['city']['name'] ?? '';
+            $a->country = !empty($fielddata['country']['name']) ? $fielddata['country']['name'] : '';
+        }
 
         if (empty($a->city) && empty($a->country)) {
             return get_string('notset', 'profilefield_truecity');
@@ -86,7 +100,7 @@ class profile_field_truecity extends profile_field_base {
      * @param moodleform $mform
      */
     public function edit_field_add($mform) {
-        global $USER, $OUTPUT, $PAGE;
+        global $OUTPUT, $PAGE, $USER;
 
         $this->editingmode = true;
         $baseurl = rtrim($this->field->param1, '/');
@@ -96,7 +110,8 @@ class profile_field_truecity extends profile_field_base {
             return;
         }
 
-        $defaultcountry = $USER->country;
+        $targetuser = empty($this->userid) || $this->userid == $USER->id ? $USER : core_user::get_user($this->userid);
+        $defaultcountry = is_string($targetuser->country) ? $targetuser->country : '';
         if (empty($defaultcountry)) {
             $defaultcountry = get_config('moodle', 'country');
         }
@@ -110,10 +125,10 @@ class profile_field_truecity extends profile_field_base {
 
         // Store the field data in a hidden field as JSON.
         $mform->addElement(
-            'hidden',
+            'text',
             $this->inputname,
             format_string($this->field->name),
-            ['data-targetvalue' => $uniqid]
+            ['data-targetvalue' => $uniqid, 'class' => 'profilefield-truecity-input']
         );
         $mform->setType($this->inputname, PARAM_RAW);
 
@@ -129,14 +144,16 @@ class profile_field_truecity extends profile_field_base {
             $baseurl,
         ]);
 
-        $mform->addElement('static', $this->inputname . '_static', format_string($this->field->name), $selectorhtml);
+        $mform->addElement('static', $this->inputname . '_static', '', $selectorhtml);
 
-        // Remove the original fields if exists, i.e. we are not on the signup page.
-        if ($mform->elementExists('city')) {
-            $mform->removeElement('city');
-        }
-        if ($mform->elementExists('country')) {
-            $mform->removeElement('country');
+        if (!empty($this->field->param2)) {
+            // Remove the original fields if exists, i.e. we are not on the signup page.
+            if ($mform->elementExists('city')) {
+                $mform->removeElement('city');
+            }
+            if ($mform->elementExists('country')) {
+                $mform->removeElement('country');
+            }
         }
     }
 
@@ -146,7 +163,11 @@ class profile_field_truecity extends profile_field_base {
      * @return bool
      */
     public function edit_after_data($mform) {
-        if ($this->field->visible == PROFILE_VISIBLE_NONE && !has_capability('moodle/user:update', context_system::instance())) {
+        if (
+            $this->field->visible == PROFILE_VISIBLE_NONE &&
+            !has_capability('moodle/user:update', context_system::instance()) &&
+            !empty($this->field->param2)
+        ) {
             if ($mform->elementExists('city')) {
                 $mform->removeElement('city');
             }
@@ -163,7 +184,7 @@ class profile_field_truecity extends profile_field_base {
      * @param stdClass $usernew data coming from the form
      */
     public function edit_save_data($usernew) {
-        global $DB;
+        global $CFG;
 
         if (!isset($usernew->{$this->inputname})) {
             // Field not present in form, probably locked and invisible - skip it.
@@ -177,18 +198,48 @@ class profile_field_truecity extends profile_field_base {
             return;
         }
 
-        $data = new stdClass();
-        $data->id = $usernew->id;
+        if (!empty($this->field->param2)) {
+            $data = new stdClass();
+            $data->id = $usernew->id;
 
-        if (isset($fielddata['country'])) {
-            $data->country = $fielddata['country']['value'];
+            if (isset($fielddata['country'])) {
+                $data->country = $fielddata['country']['value'];
+            }
+
+            if (isset($fielddata['city'])) {
+                $data->city = $fielddata['city']['name'];
+            }
+
+            require_once($CFG->dirroot . '/user/lib.php');
+            user_update_user($data, false);
+        }
+    }
+
+    /**
+     * Validate the form field from profile page.
+     *
+     * @param stdClass $usernew
+     * @return array error messages for the form validation
+     */
+    public function edit_validate_field($usernew) {
+        $errors = parent::edit_validate_field($usernew);
+
+        $value = $usernew->{$this->inputname} ?? '';
+
+        if (empty($value) && !$this->is_required()) {
+            return $errors;
         }
 
-        if (isset($fielddata['city'])) {
-            $data->city = $fielddata['city']['name'];
+        $fielddata = json_decode($value, true);
+
+        $hascity = !empty($fielddata['city']['name']);
+        $hascountry = !empty($fielddata['country']['value']);
+
+        if (!$hascity || !$hascountry) {
+            $errors[$this->inputname] = get_string('required');
         }
 
-        $DB->update_record('user', $data);
+        return $errors;
     }
 
     /**

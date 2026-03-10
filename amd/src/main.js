@@ -29,41 +29,6 @@ import {get_strings as getStrings} from 'core/str';
 import TruecityAutocomplete from './autocomplete';
 
 /**
- * @type {HTMLElement} Base container for the true city selector
- */
-var containerBase;
-
-/**
- * @type {TruecityAutocomplete} Country autocomplete instance
- */
-var countryAC;
-
-/**
- * @type {TruecityAutocomplete} Region autocomplete instance
- */
-var regionAC;
-
-/**
- * @type {TruecityAutocomplete} City autocomplete instance
- */
-var cityAC;
-
-/**
- * @type {HTMLElement} Modal body container
- */
-var modalbody;
-
-/**
- * @type {any} Currently selected location data
- */
-var currentSelected = null;
-
-/**
- * @type {string} Base URL for AJAX requests in order to fetch location data: countries, regions, and cities.
- */
-var baseurl;
-
-/**
  * Strings to load from server.
  *
  * @type {Array}
@@ -81,16 +46,27 @@ var strings = [
 ];
 
 /**
- * Loaded strings.
+ * Loaded strings (shared across instances).
  *
  * @type {Array}
  */
 var s = [];
 
 /**
+ * Whether strings have already been loaded.
+ *
+ * @type {boolean}
+ */
+var stringsLoaded = false;
+
+/**
  * Load strings from server.
  */
 async function loadStrings() {
+    if (stringsLoaded) {
+        return;
+    }
+
     strings.forEach(one => {
         s[one.key] = one.key;
     });
@@ -101,13 +77,13 @@ async function loadStrings() {
             s[one.key] = results[pos];
             pos++;
         });
+        stringsLoaded = true;
         return true;
     }).fail(function(e) {
         Log.debug('Error loading strings');
         Log.debug(e);
     });
 }
-// End of Load strings.
 
 /**
  * Initialize module
@@ -116,12 +92,10 @@ async function loadStrings() {
  * @param {string} url Base URL for AJAX requests in order to fetch location data: countries, regions, and cities.
  */
 export const init = async(uniqid, url) => {
-    baseurl = url;
-
     await loadStrings();
 
     const selectorid = `truecity-selector-${uniqid}`;
-    containerBase = document.getElementById(selectorid);
+    const containerBase = document.getElementById(selectorid);
 
     if (!containerBase) {
         // This occurs when the control is loaded onto the form but the controls are not painted;
@@ -129,13 +103,15 @@ export const init = async(uniqid, url) => {
         return;
     }
 
+    var currentSelected = null;
+
     // Initialize autocomplete controls. Countries are pre-loaded as <option> elements in the template.
     const countryContainer = containerBase.querySelector('[data-truecity-control="country"]');
     const defaultCountry = countryContainer ? countryContainer.dataset.default || '' : '';
     const regionContainer = containerBase.querySelector('[data-truecity-control="region"]');
     const cityContainer = containerBase.querySelector('[data-truecity-control="city"]');
 
-    countryAC = new TruecityAutocomplete(countryContainer, {
+    const countryAC = new TruecityAutocomplete(countryContainer, {
         placeholder: s.selectacity,
         onChange: (value) => {
             regionAC.clear();
@@ -146,7 +122,7 @@ export const init = async(uniqid, url) => {
         },
     });
 
-    regionAC = new TruecityAutocomplete(regionContainer, {
+    const regionAC = new TruecityAutocomplete(regionContainer, {
         placeholder: s.selectaregion,
         onChange: (value) => {
             cityAC.clear();
@@ -157,22 +133,46 @@ export const init = async(uniqid, url) => {
         },
     });
 
-    cityAC = new TruecityAutocomplete(cityContainer, {
+    const cityAC = new TruecityAutocomplete(cityContainer, {
         placeholder: s.selectacity,
     });
 
     // Load current selected value from hidden input.
     const hiddenInput = document.querySelector('input[data-targetvalue="' + uniqid + '"]');
+
+    // Move the selector control into the hidden input's form container.
+    const hiddenContainer = hiddenInput ? hiddenInput.closest('.fitem') : null;
+    const infoControl = containerBase.querySelector('.truecity-information');
+    if (hiddenContainer) {
+        if (infoControl) {
+            hiddenInput.parentNode.insertBefore(infoControl, hiddenInput);
+        } else {
+            // It shouldn't be possible, but just in case the control didn't render.
+            return;
+        }
+    }
+
     const currentValue = hiddenInput ? hiddenInput.value : '';
     if (currentValue) {
         try {
             currentSelected = JSON.parse(currentValue);
+
+            // Initialize location text from saved data.
+            if (currentSelected && currentSelected.country && currentSelected.city) {
+                const locationText = s.locationtext
+                    .replace('[COUNTRY]', currentSelected.country.name)
+                    .replace('[CITY]', currentSelected.city.name);
+                const locationEl = infoControl.querySelector('[data-locationtext]');
+                if (locationEl) {
+                    locationEl.textContent = locationText;
+                }
+            }
         } catch (e) {
             Log.debug('profilefield_truecity: Error parsing current location JSON: ' + e);
         }
     }
 
-    modalbody = containerBase.querySelector('.modal-body');
+    const modalbody = containerBase.querySelector('.modal-body');
 
     var selectorModal;
 
@@ -227,7 +227,7 @@ export const init = async(uniqid, url) => {
                 .replace('[COUNTRY]', countryName)
                 .replace('[CITY]', cityName);
 
-            const locationEl = containerBase.querySelector('.truecity-information [data-locationtext]');
+            const locationEl = infoControl.querySelector('[data-locationtext]');
             if (locationEl) {
                 locationEl.textContent = locationText;
             }
@@ -244,7 +244,7 @@ export const init = async(uniqid, url) => {
         return modal;
     }).catch(Notification.exception);
 
-    const openBtn = containerBase.querySelector('.truecity-information [data-act="openselector"]');
+    const openBtn = infoControl.querySelector('[data-act="openselector"]');
     if (openBtn) {
         openBtn.addEventListener('click', function() {
             selectorModal.show();
@@ -266,108 +266,108 @@ export const init = async(uniqid, url) => {
         countryAC.setValue(defaultCountry);
         loadCountryRegions(defaultCountry);
     }
+
+    /**
+     * Load regions for a given country.
+     *
+     * @param {string} countryCode The selected country code.
+     */
+    function loadCountryRegions(countryCode) {
+        const countryJsonUrl = `${url}/countries/${countryCode}.json`;
+        Log.debug('Loading regions from URL: ' + countryJsonUrl);
+
+        $.ajax({
+            url: countryJsonUrl,
+            method: 'GET',
+            dataType: 'json',
+            success: function(data) {
+                if (Array.isArray(data)) {
+                    populateRegions(data);
+                } else {
+                    Log.debug('profilefield_truecity: Invalid regions data format');
+                    Notification.exception(new Error(s.invalidregionsdataformat));
+                }
+            },
+            error: function(xhr, status, error) {
+                Log.debug('profilefield_truecity: Error fetching country data: ' + error);
+                Notification.exception(new Error(s.failedtoloadcountrydata));
+            },
+        });
+    }
+
+    /**
+     * Populate the regions control based on the selected country.
+     *
+     * @param {Array} regions Array of region objects.
+     */
+    function populateRegions(regions) {
+        regions = regions.sort((a, b) => a.n.localeCompare(b.n));
+        const items = regions.map(region => {
+            let name = region.n;
+            if (!name || name.trim() === '' || name === 'UNKNOWN') {
+                name = s.unknownregion;
+            }
+            return {value: String(region.i), label: name};
+        });
+
+        regionAC.setItems(items);
+
+        if (currentSelected && currentSelected.region) {
+            regionAC.setValue(currentSelected.region.value);
+            const selectedRegion = regionAC.getValue();
+            currentSelected.region = null;
+
+            if (selectedRegion) {
+                const countryCode = countryAC.getValue();
+                loadRegionCities(countryCode, selectedRegion);
+            }
+        }
+    }
+
+    /**
+     * Load cities for a given country and region.
+     *
+     * @param {string} countryCode The selected country code.
+     * @param {string} regionCode The selected region code.
+     */
+    function loadRegionCities(countryCode, regionCode) {
+        const regionJsonUrl = `${url}/regions/${countryCode}_${regionCode}.json`;
+        Log.debug('Loading cities from URL: ' + regionJsonUrl);
+
+        $.ajax({
+            url: regionJsonUrl,
+            method: 'GET',
+            dataType: 'json',
+            success: function(data) {
+                if (Array.isArray(data)) {
+                    populateCities(data);
+                } else {
+                    Log.debug('profilefield_truecity: Invalid cities data format');
+                    Notification.exception(new Error(s.invalidregionsdataformat));
+                }
+            },
+            error: function(xhr, status, error) {
+                Log.debug('profilefield_truecity: Error fetching region data: ' + error);
+                Notification.exception(new Error(s.failedtoloadregiondata));
+            },
+        });
+    }
+
+    /**
+     * Populate the cities control based on the selected region.
+     *
+     * @param {Array} cities Array of city objects.
+     */
+    function populateCities(cities) {
+        cities = cities.sort((a, b) => a.n.localeCompare(b.n));
+        const items = cities.map(city => ({value: String(city.i), label: city.n}));
+
+        cityAC.setItems(items);
+
+        if (currentSelected && currentSelected.city) {
+            Log.debug('Preselecting city: ' + currentSelected.city.value);
+            cityAC.setValue(currentSelected.city.value);
+            currentSelected.city = null;
+        }
+    }
 };
-
-/**
- * Load regions for a given country.
- *
- * @param {string} countryCode The selected country code.
- */
-function loadCountryRegions(countryCode) {
-    const countryJsonUrl = `${baseurl}/countries/${countryCode}.json`;
-    Log.debug('Loading regions from URL: ' + countryJsonUrl);
-
-    $.ajax({
-        url: countryJsonUrl,
-        method: 'GET',
-        dataType: 'json',
-        success: function(data) {
-            if (Array.isArray(data)) {
-                populateRegions(data);
-            } else {
-                Log.debug('profilefield_truecity: Invalid regions data format');
-                Notification.exception(new Error(s.invalidregionsdataformat));
-            }
-        },
-        error: function(xhr, status, error) {
-            Log.debug('profilefield_truecity: Error fetching country data: ' + error);
-            Notification.exception(new Error(s.failedtoloadcountrydata));
-        },
-    });
-}
-
-/**
- * Populate the regions control based on the selected country.
- *
- * @param {Array} regions Array of region objects.
- */
-function populateRegions(regions) {
-    regions = regions.sort((a, b) => a.n.localeCompare(b.n));
-    const items = regions.map(region => {
-        let name = region.n;
-        if (!name || name.trim() === '' || name === 'UNKNOWN') {
-            name = s.unknownregion;
-        }
-        return {value: String(region.i), label: name};
-    });
-
-    regionAC.setItems(items);
-
-    if (currentSelected && currentSelected.region) {
-        regionAC.setValue(currentSelected.region.value);
-        const selectedRegion = regionAC.getValue();
-        currentSelected.region = null;
-
-        if (selectedRegion) {
-            const countryCode = countryAC.getValue();
-            loadRegionCities(countryCode, selectedRegion);
-        }
-    }
-}
-
-/**
- * Load cities for a given country and region.
- *
- * @param {string} countryCode The selected country code.
- * @param {string} regionCode The selected region code.
- */
-function loadRegionCities(countryCode, regionCode) {
-    const regionJsonUrl = `${baseurl}/regions/${countryCode}_${regionCode}.json`;
-    Log.debug('Loading cities from URL: ' + regionJsonUrl);
-
-    $.ajax({
-        url: regionJsonUrl,
-        method: 'GET',
-        dataType: 'json',
-        success: function(data) {
-            if (Array.isArray(data)) {
-                populateCities(data);
-            } else {
-                Log.debug('profilefield_truecity: Invalid cities data format');
-                Notification.exception(new Error(s.invalidregionsdataformat));
-            }
-        },
-        error: function(xhr, status, error) {
-            Log.debug('profilefield_truecity: Error fetching region data: ' + error);
-            Notification.exception(new Error(s.failedtoloadregiondata));
-        },
-    });
-}
-
-/**
- * Populate the cities control based on the selected region.
- *
- * @param {Array} cities Array of city objects.
- */
-function populateCities(cities) {
-    cities = cities.sort((a, b) => a.n.localeCompare(b.n));
-    const items = cities.map(city => ({value: String(city.i), label: city.n}));
-
-    cityAC.setItems(items);
-
-    if (currentSelected && currentSelected.city) {
-        Log.debug('Preselecting city: ' + currentSelected.city.value);
-        cityAC.setValue(currentSelected.city.value);
-        currentSelected.city = null;
-    }
-}

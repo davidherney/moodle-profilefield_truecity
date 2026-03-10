@@ -58,3 +58,12 @@
 .truecity-autocomplete-item-selected {
     font-weight: 600;
 }
+
+.profilefield-truecity-input input {
+    display: none;
+}
+
+/* It is hidden by default. It becomes visible when it is moved to the input container. */
+.truecity-selector .truecity-information {
+    display: none;
+}
