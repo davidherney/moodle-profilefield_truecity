@@ -50,10 +50,14 @@ class profile_field_truecity extends profile_field_base {
         $a->city = '';
         $a->country = '';
 
-        if (!empty($this->field->param2)) {
+        if (!empty($this->field->param2) && $this->userid > 0) {
             $targetuser = empty($this->userid) || $this->userid == $USER->id ? $USER : core_user::get_user($this->userid);
-            $a->city = $targetuser->city;
-            $a->country = !empty($targetuser->country) ? get_string($targetuser->country, 'countries') : '';
+            if (property_exists($targetuser, 'city') && is_string($targetuser->city)) {
+                $a->city = $targetuser->city;
+            }
+            if (property_exists($targetuser, 'country') && is_string($targetuser->country)) {
+                $a->country = !empty($targetuser->country) ? get_string($targetuser->country, 'countries') : '';
+            }
         }
 
         if (!empty($this->data) && (empty($a->city) || empty($a->country))) {
@@ -110,8 +114,14 @@ class profile_field_truecity extends profile_field_base {
             return;
         }
 
-        $targetuser = empty($this->userid) || $this->userid == $USER->id ? $USER : core_user::get_user($this->userid);
-        $defaultcountry = is_string($targetuser->country) ? $targetuser->country : '';
+        $defaultcountry = '';
+        if ($this->userid > 0) {
+            $targetuser = empty($this->userid) || $this->userid == $USER->id ? $USER : core_user::get_user($this->userid);
+            if (property_exists($targetuser, 'country') && is_string($targetuser->country)) {
+                $defaultcountry = $targetuser->country;
+            }
+        }
+
         if (empty($defaultcountry)) {
             $defaultcountry = get_config('moodle', 'country');
         }

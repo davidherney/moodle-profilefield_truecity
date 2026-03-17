@@ -30,6 +30,7 @@ $string['baseuri_help'] = 'The base URI to search the countries and cities.
 There must be one file per country with all regions and one file per region with all cities.';
 $string['failedtoloadcountrydata'] = 'Failed to load country data';
 $string['failedtoloadregiondata'] = 'Failed to load region data';
+$string['invalidbaseurl'] = 'Invalid base URI';
 $string['invalidregionsdataformat'] = 'Invalid regions data format';
 $string['locationtext'] = '{$a->city}, {$a->country}';
 $string['notset'] = 'Not set';
@@ -48,4 +49,3 @@ $string['selectlocationtitle'] = 'Select location';
 $string['unknownregion'] = 'Unknown region name';
 $string['updateprofile'] = 'Update user profile';
 $string['updateprofile_help'] = 'If enabled, the selected city and country will update the city and country fields in the user profile. If disabled, the selection is stored only as custom profile field data.';
-$string['invalidbaseurl'] = 'Invalid base URI';
